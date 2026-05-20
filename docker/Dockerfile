@@ -63,32 +63,30 @@ ENV TF_NEED_ROCM=0
 ARG TF_CUDA_COMPUTE_CAPABILITIES=6.0,6.1,7.0,7.5,8.0,8.6,8.9,9.0
 ENV TF_CUDA_COMPUTE_CAPABILITIES=${TF_CUDA_COMPUTE_CAPABILITIES}
 ENV TF_CUDA_CLANG=0
+ENV GCC_HOST_COMPILER_PATH=/usr/bin/gcc
 ENV CC_OPT_FLAGS="-march=native -Wno-sign-compare"
 ENV TF_SET_ANDROID_WORKSPACE=0
-# SIG Build images (TF >= 2.16) run Ubuntu 22.04 with clang-18 as default CC.
-# clang rejects nvcc-specific bazel flags (-Xcuda-fatbinary, -nvcc_options).
-# Force GCC via TF_NEED_CLANG=0 (configure.py 2.16+ reads this to choose compiler).
-# GCC 12 is required: Ubuntu 22.04's default gcc-11 lacks -mavxvnniint8 support
-# needed by XNNPACK when the host CPU has AVX-VNNI-INT8 capability.
-RUN apt-get update && apt-get install -y gcc-12 g++-12 && rm -rf /var/lib/apt/lists/*
-ENV TF_NEED_CLANG=0
-ENV CC=/usr/bin/gcc-12
-ENV CXX=/usr/bin/g++-12
-ENV GCC_HOST_COMPILER_PATH=/usr/bin/gcc-12
 RUN ./configure
 
 # build C++ library
 # TF >= 2.10 must be built non-monolithic due to runtime issue
 # https://github.com/tensorflow/tensorflow/issues/59081
+# For TF >= 2.16 (SIG Build / clang-18 host), GPU builds use --config=cuda_nvcc.
+# That config adds TF_NVCC_CLANG=1 and --@local_config_cuda//:cuda_compiler=nvcc,
+# which routes .cu.cc files through nvcc (required for TF's nvcc-specific bazel
+# flags like -Xcuda-fatbinary) while keeping clang as the host C++ compiler
+# (required for newer ISA flags like -mavxvnniint8 used by XNNPACK).
 ARG JOBS="auto"
 RUN TF_MINOR=$(echo ${TF_VERSION} | cut -d. -f2) && \
     TF_MAJOR=$(echo ${TF_VERSION} | cut -d. -f1) && \
     NON_MONO=$(awk "BEGIN {print (($TF_MAJOR > 2) || ($TF_MAJOR == 2 && $TF_MINOR >= 10)) ? 1 : 0}") && \
+    USE_SIG_BUILD=$(awk "BEGIN {print (($TF_MAJOR > 2) || ($TF_MAJOR == 2 && $TF_MINOR >= 16)) ? 1 : 0}") && \
+    CUDA_CONFIG=$([ "$USE_SIG_BUILD" = "1" ] && echo "cuda_nvcc" || echo "cuda") && \
     if [ "${GPU_POSTFIX}" = "-gpu" ]; then \
         if [ "$NON_MONO" = "1" ]; then \
-            bazel build --jobs ${JOBS} --config=cuda --config=opt --verbose_failures tensorflow:libtensorflow_cc.so tensorflow:install_headers; \
+            bazel build --jobs ${JOBS} --config=${CUDA_CONFIG} --config=opt --verbose_failures tensorflow:libtensorflow_cc.so tensorflow:install_headers; \
         else \
-            bazel build --jobs ${JOBS} --config=cuda --config=opt --config=monolithic --verbose_failures tensorflow:libtensorflow_cc.so tensorflow:install_headers; \
+            bazel build --jobs ${JOBS} --config=${CUDA_CONFIG} --config=opt --config=monolithic --verbose_failures tensorflow:libtensorflow_cc.so tensorflow:install_headers; \
         fi; \
     else \
         if [ "$NON_MONO" = "1" ]; then \
@@ -111,12 +109,14 @@ ARG BUILD_PIP_PACKAGE=0
 RUN TF_MINOR=$(echo ${TF_VERSION} | cut -d. -f2) && \
     TF_MAJOR=$(echo ${TF_VERSION} | cut -d. -f1) && \
     NON_MONO=$(awk "BEGIN {print (($TF_MAJOR > 2) || ($TF_MAJOR == 2 && $TF_MINOR >= 10)) ? 1 : 0}") && \
+    USE_SIG_BUILD=$(awk "BEGIN {print (($TF_MAJOR > 2) || ($TF_MAJOR == 2 && $TF_MINOR >= 16)) ? 1 : 0}") && \
+    CUDA_CONFIG=$([ "$USE_SIG_BUILD" = "1" ] && echo "cuda_nvcc" || echo "cuda") && \
     if [ "${BUILD_PIP_PACKAGE}" = "1" ]; then \
         if [ "${GPU_POSTFIX}" = "-gpu" ]; then \
             if [ "$NON_MONO" = "1" ]; then \
-                bazel build --jobs ${JOBS} --config=cuda --config=opt --verbose_failures tensorflow/tools/pip_package:build_pip_package; \
+                bazel build --jobs ${JOBS} --config=${CUDA_CONFIG} --config=opt --verbose_failures tensorflow/tools/pip_package:build_pip_package; \
             else \
-                bazel build --jobs ${JOBS} --config=cuda --config=opt --config=monolithic --verbose_failures tensorflow/tools/pip_package:build_pip_package; \
+                bazel build --jobs ${JOBS} --config=${CUDA_CONFIG} --config=opt --config=monolithic --verbose_failures tensorflow/tools/pip_package:build_pip_package; \
             fi; \
         else \
             if [ "$NON_MONO" = "1" ]; then \
