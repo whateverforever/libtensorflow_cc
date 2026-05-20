@@ -62,11 +62,24 @@ ENV PYTHON_LIB_PATH=/usr/lib/python3/dist-packages
 ENV TF_NEED_ROCM=0
 ARG TF_CUDA_COMPUTE_CAPABILITIES=6.0,6.1,7.0,7.5,8.0,8.6,8.9,9.0
 ENV TF_CUDA_COMPUTE_CAPABILITIES=${TF_CUDA_COMPUTE_CAPABILITIES}
-ENV TF_CUDA_CLANG=0
 ENV GCC_HOST_COMPILER_PATH=/usr/bin/gcc
 ENV CC_OPT_FLAGS="-march=native -Wno-sign-compare"
 ENV TF_SET_ANDROID_WORKSPACE=0
-RUN ./configure
+# TF_CUDA_CLANG selects the CUDA crosstool flavor at ./configure time:
+#   0 -> nvcc + crosstool_wrapper_driver_is_not_gcc (older TF, devel images)
+#   1 -> clang as the CUDA driver, no wrapper        (SIG Build, TF >= 2.16)
+# The SIG Build image (TF >= 2.16) ships clang-18 at /usr/lib/llvm-18; --config=cuda
+# expects a clang-direct crosstool there, otherwise bazel emits wrapper-style flags
+# (-nvcc_options=, -Xcuda-fatbinary=) that the plain clang driver does not accept.
+RUN TF_MINOR=$(echo ${TF_VERSION} | cut -d. -f2) && \
+    TF_MAJOR=$(echo ${TF_VERSION} | cut -d. -f1) && \
+    USE_SIG_BUILD=$(awk "BEGIN {print (($TF_MAJOR > 2) || ($TF_MAJOR == 2 && $TF_MINOR >= 16)) ? 1 : 0}") && \
+    if [ "$USE_SIG_BUILD" = "1" ]; then \
+        export TF_CUDA_CLANG=1 CLANG_CUDA_COMPILER_PATH=/usr/lib/llvm-18/bin/clang ; \
+    else \
+        export TF_CUDA_CLANG=0 ; \
+    fi && \
+    ./configure
 
 # build C++ library
 # TF >= 2.10 must be built non-monolithic due to runtime issue
