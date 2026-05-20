@@ -63,16 +63,18 @@ ENV TF_NEED_ROCM=0
 ARG TF_CUDA_COMPUTE_CAPABILITIES=6.0,6.1,7.0,7.5,8.0,8.6,8.9,9.0
 ENV TF_CUDA_COMPUTE_CAPABILITIES=${TF_CUDA_COMPUTE_CAPABILITIES}
 ENV TF_CUDA_CLANG=0
-ENV GCC_HOST_COMPILER_PATH=/usr/bin/gcc
 ENV CC_OPT_FLAGS="-march=native -Wno-sign-compare"
 ENV TF_SET_ANDROID_WORKSPACE=0
-# SIG Build images (TF >= 2.16) default to clang-18, but --config=cuda uses
-# nvcc-specific bazel flags that clang rejects. Force GCC as host compiler.
-# configure.py 2.16+ prompts "Do you wish to build with clang?" - TF_NEED_CLANG=0
-# answers no, so configure writes GCC into .tf_configure.bazelrc.
+# SIG Build images (TF >= 2.16) run Ubuntu 22.04 with clang-18 as default CC.
+# clang rejects nvcc-specific bazel flags (-Xcuda-fatbinary, -nvcc_options).
+# Force GCC via TF_NEED_CLANG=0 (configure.py 2.16+ reads this to choose compiler).
+# GCC 12 is required: Ubuntu 22.04's default gcc-11 lacks -mavxvnniint8 support
+# needed by XNNPACK when the host CPU has AVX-VNNI-INT8 capability.
+RUN apt-get update && apt-get install -y gcc-12 g++-12 && rm -rf /var/lib/apt/lists/*
 ENV TF_NEED_CLANG=0
-ENV CC=/usr/bin/gcc
-ENV CXX=/usr/bin/g++
+ENV CC=/usr/bin/gcc-12
+ENV CXX=/usr/bin/g++-12
+ENV GCC_HOST_COMPILER_PATH=/usr/bin/gcc-12
 RUN ./configure
 
 # build C++ library
