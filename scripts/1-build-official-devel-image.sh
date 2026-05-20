@@ -21,6 +21,12 @@
 
 source  $(dirname "$0")/.common.sh
 
+if [ "$USE_SIG_BUILD" = "1" ]; then
+    echo "Skipping: TF ${TF_VERSION} uses the SIG Build image (${DEVEL_IMAGE})"
+    echo "which is published to Docker Hub. Step 2 will pull it directly."
+    exit 0
+fi
+
 CPU_GPU_POSTFIX=${GPU_POSTFIX:--cpu}
 BUILD_DIR=${DOWNLOAD_DOCKERFILE_DIR}
 BSD_SED_ARG=""

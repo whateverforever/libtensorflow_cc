@@ -21,6 +21,13 @@
 
 source  $(dirname "$0")/.common.sh
 
+if [ "$USE_SIG_BUILD" = "1" ]; then
+    echo "Skipping: TF ${TF_VERSION} does not ship tensorflow/tools/dockerfiles/."
+    echo "It uses tools/tf_sig_build_dockerfiles/ instead; the SIG Build image"
+    echo "${DEVEL_IMAGE} is pulled directly from Docker Hub by step 2."
+    exit 0
+fi
+
 REPO_URL="https://github.com/tensorflow/tensorflow/archive/refs/tags/v${TF_VERSION}.tar.gz"
 REPO_PATH="tensorflow/tools/dockerfiles/*"
 TEMP_DIR=$(mktemp -d)

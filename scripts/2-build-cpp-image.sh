@@ -31,5 +31,6 @@ docker build \
     --build-arg BUILD_PIP_PACKAGE=${BUILD_PIP_PACKAGE} \
     --build-arg UBUNTU_CODENAME=${UBUNTU_CODENAME} \
     --build-arg FINAL_BASE_AMD64=${FINAL_BASE_AMD64} \
+    --build-arg DEVEL_IMAGE=${DEVEL_IMAGE} \
     -t ${IMAGE_CPP_ARCH} ${DOCKER_DIR} | tee ${LOG_FILE}
 docker tag ${IMAGE_CPP_ARCH} ${IMAGE_CPP}

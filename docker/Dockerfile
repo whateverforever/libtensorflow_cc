@@ -23,11 +23,16 @@ ARG TARGETARCH
 ARG TF_VERSION=master
 ARG GPU_POSTFIX=-gpu
 ARG UBUNTU_CODENAME=focal
+# Overridable base image for the build stage. Scripts compute this based on
+# TF_VERSION: tensorflow/tensorflow:*-devel* for TF < 2.16, tensorflow/build:*
+# (SIG Build) for TF >= 2.16, because the public *-devel tags were deprecated.
+# Required: scripts/.common.sh always passes this. Direct docker builds must too.
+ARG DEVEL_IMAGE
 # Overridable base image for the amd64 final stage.
 # Defaults to ubuntu:focal; scripts set this to the TF runtime image on focal
 # or ubuntu:noble on noble.
 ARG FINAL_BASE_AMD64=ubuntu:focal
-FROM tensorflow/tensorflow:${TF_VERSION}-devel${GPU_POSTFIX}-${TARGETARCH} as build
+FROM ${DEVEL_IMAGE} as build
 
 ARG TARGETARCH
 ARG TF_VERSION
