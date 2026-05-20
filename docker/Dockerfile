@@ -68,8 +68,11 @@ ENV CC_OPT_FLAGS="-march=native -Wno-sign-compare"
 ENV TF_SET_ANDROID_WORKSPACE=0
 # SIG Build images (TF >= 2.16) default to clang-18, but --config=cuda uses
 # nvcc-specific bazel flags that clang rejects. Force GCC as host compiler.
-ENV HOST_C_COMPILER=/usr/bin/gcc
-ENV HOST_CXX_COMPILER=/usr/bin/g++
+# configure.py 2.16+ prompts "Do you wish to build with clang?" - TF_NEED_CLANG=0
+# answers no, so configure writes GCC into .tf_configure.bazelrc.
+ENV TF_NEED_CLANG=0
+ENV CC=/usr/bin/gcc
+ENV CXX=/usr/bin/g++
 RUN ./configure
 
 # build C++ library
