@@ -81,7 +81,7 @@ RUN TF_MINOR=$(echo ${TF_VERSION} | cut -d. -f2) && \
     TF_MAJOR=$(echo ${TF_VERSION} | cut -d. -f1) && \
     NON_MONO=$(awk "BEGIN {print (($TF_MAJOR > 2) || ($TF_MAJOR == 2 && $TF_MINOR >= 10)) ? 1 : 0}") && \
     USE_SIG_BUILD=$(awk "BEGIN {print (($TF_MAJOR > 2) || ($TF_MAJOR == 2 && $TF_MINOR >= 16)) ? 1 : 0}") && \
-    CUDA_CONFIG=$([ "$USE_SIG_BUILD" = "1" ] && echo "cuda_nvcc" || echo "cuda") && \
+    CUDA_CONFIG=$([ "$USE_SIG_BUILD" = "1" ] && echo "nvcc_clang" || echo "cuda") && \
     if [ "${GPU_POSTFIX}" = "-gpu" ]; then \
         if [ "$NON_MONO" = "1" ]; then \
             bazel build --jobs ${JOBS} --config=${CUDA_CONFIG} --config=opt --verbose_failures tensorflow:libtensorflow_cc.so tensorflow:install_headers; \
@@ -110,7 +110,7 @@ RUN TF_MINOR=$(echo ${TF_VERSION} | cut -d. -f2) && \
     TF_MAJOR=$(echo ${TF_VERSION} | cut -d. -f1) && \
     NON_MONO=$(awk "BEGIN {print (($TF_MAJOR > 2) || ($TF_MAJOR == 2 && $TF_MINOR >= 10)) ? 1 : 0}") && \
     USE_SIG_BUILD=$(awk "BEGIN {print (($TF_MAJOR > 2) || ($TF_MAJOR == 2 && $TF_MINOR >= 16)) ? 1 : 0}") && \
-    CUDA_CONFIG=$([ "$USE_SIG_BUILD" = "1" ] && echo "cuda_nvcc" || echo "cuda") && \
+    CUDA_CONFIG=$([ "$USE_SIG_BUILD" = "1" ] && echo "nvcc_clang" || echo "cuda") && \
     if [ "${BUILD_PIP_PACKAGE}" = "1" ]; then \
         if [ "${GPU_POSTFIX}" = "-gpu" ]; then \
             if [ "$NON_MONO" = "1" ]; then \
