@@ -66,6 +66,10 @@ ENV TF_CUDA_CLANG=0
 ENV GCC_HOST_COMPILER_PATH=/usr/bin/gcc
 ENV CC_OPT_FLAGS="-march=native -Wno-sign-compare"
 ENV TF_SET_ANDROID_WORKSPACE=0
+# SIG Build images (TF >= 2.16) default to clang-18, but --config=cuda uses
+# nvcc-specific bazel flags that clang rejects. Force GCC as host compiler.
+ENV HOST_C_COMPILER=/usr/bin/gcc
+ENV HOST_CXX_COMPILER=/usr/bin/g++
 RUN ./configure
 
 # build C++ library
