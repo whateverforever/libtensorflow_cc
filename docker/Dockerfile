@@ -22,6 +22,11 @@
 ARG TARGETARCH
 ARG TF_VERSION=master
 ARG GPU_POSTFIX=-gpu
+ARG UBUNTU_CODENAME=focal
+# Overridable base image for the amd64 final stage.
+# Defaults to ubuntu:focal; scripts set this to the TF runtime image on focal
+# or ubuntu:noble on noble.
+ARG FINAL_BASE_AMD64=ubuntu:focal
 FROM tensorflow/tensorflow:${TF_VERSION}-devel${GPU_POSTFIX}-${TARGETARCH} as build
 
 ARG TARGETARCH
@@ -59,17 +64,20 @@ ENV TF_SET_ANDROID_WORKSPACE=0
 RUN ./configure
 
 # build C++ library
-# fix runtime issue in 2.10.0, 2.10.1, 2.11.0, 2.11.1, 2.12.0, 2.12.1, 2.13.0 by building non-monolithic
+# TF >= 2.10 must be built non-monolithic due to runtime issue
 # https://github.com/tensorflow/tensorflow/issues/59081
 ARG JOBS="auto"
-RUN if [ "${GPU_POSTFIX}" = "-gpu" ]; then \
-        if [ "${TF_VERSION}" = "2.10.0" ] || [ "${TF_VERSION}" = "2.10.1" ] || [ "${TF_VERSION}" = "2.11.0" ] || [ "${TF_VERSION}" = "2.11.1" ] || [ "${TF_VERSION}" = "2.12.0" ] || [ "${TF_VERSION}" = "2.12.1" ] || [ "${TF_VERSION}" = "2.13.0" ]; then \
+RUN TF_MINOR=$(echo ${TF_VERSION} | cut -d. -f2) && \
+    TF_MAJOR=$(echo ${TF_VERSION} | cut -d. -f1) && \
+    NON_MONO=$(awk "BEGIN {print (($TF_MAJOR > 2) || ($TF_MAJOR == 2 && $TF_MINOR >= 10)) ? 1 : 0}") && \
+    if [ "${GPU_POSTFIX}" = "-gpu" ]; then \
+        if [ "$NON_MONO" = "1" ]; then \
             bazel build --jobs ${JOBS} --config=cuda --config=opt --verbose_failures tensorflow:libtensorflow_cc.so tensorflow:install_headers; \
         else \
             bazel build --jobs ${JOBS} --config=cuda --config=opt --config=monolithic --verbose_failures tensorflow:libtensorflow_cc.so tensorflow:install_headers; \
         fi; \
     else \
-        if [ "${TF_VERSION}" = "2.10.0" ] || [ "${TF_VERSION}" = "2.10.1" ] || [ "${TF_VERSION}" = "2.11.0" ] || [ "${TF_VERSION}" = "2.11.1" ] || [ "${TF_VERSION}" = "2.12.0" ] || [ "${TF_VERSION}" = "2.12.1" ] || [ "${TF_VERSION}" = "2.13.0" ]; then \
+        if [ "$NON_MONO" = "1" ]; then \
             bazel build --jobs ${JOBS} --config=opt --verbose_failures tensorflow:libtensorflow_cc.so tensorflow:install_headers; \
         else \
             bazel build --jobs ${JOBS} --config=opt --config=monolithic --verbose_failures tensorflow:libtensorflow_cc.so tensorflow:install_headers; \
@@ -84,18 +92,20 @@ RUN mkdir -p bazel-bin/tensorflow/lib && \
     rm bazel-bin/tensorflow/lib/*params
 
 # build pip package
-# fix runtime issue in 2.10.0, 2.10.1, 2.11.0, 2.11.1, 2.12.0, 2.12.1, 2.13.0 by building non-monolithic
-# https://github.com/tensorflow/tensorflow/issues/59081
+# TF >= 2.10 must be built non-monolithic (same reason as above)
 ARG BUILD_PIP_PACKAGE=0
-RUN if [ "${BUILD_PIP_PACKAGE}" = "1" ]; then \
+RUN TF_MINOR=$(echo ${TF_VERSION} | cut -d. -f2) && \
+    TF_MAJOR=$(echo ${TF_VERSION} | cut -d. -f1) && \
+    NON_MONO=$(awk "BEGIN {print (($TF_MAJOR > 2) || ($TF_MAJOR == 2 && $TF_MINOR >= 10)) ? 1 : 0}") && \
+    if [ "${BUILD_PIP_PACKAGE}" = "1" ]; then \
         if [ "${GPU_POSTFIX}" = "-gpu" ]; then \
-            if [ "${TF_VERSION}" = "2.10.0" ] || [ "${TF_VERSION}" = "2.10.1" ] || [ "${TF_VERSION}" = "2.11.0" ] || [ "${TF_VERSION}" = "2.11.1" ] || [ "${TF_VERSION}" = "2.12.0" ] || [ "${TF_VERSION}" = "2.12.1" ] || [ "${TF_VERSION}" = "2.13.0" ]; then \
+            if [ "$NON_MONO" = "1" ]; then \
                 bazel build --jobs ${JOBS} --config=cuda --config=opt --verbose_failures tensorflow/tools/pip_package:build_pip_package; \
             else \
                 bazel build --jobs ${JOBS} --config=cuda --config=opt --config=monolithic --verbose_failures tensorflow/tools/pip_package:build_pip_package; \
             fi; \
         else \
-            if [ "${TF_VERSION}" = "2.10.0" ] || [ "${TF_VERSION}" = "2.10.1" ] || [ "${TF_VERSION}" = "2.11.0" ] || [ "${TF_VERSION}" = "2.11.1" ] || [ "${TF_VERSION}" = "2.12.0" ] || [ "${TF_VERSION}" = "2.12.1" ] || [ "${TF_VERSION}" = "2.13.0" ]; then \
+            if [ "$NON_MONO" = "1" ]; then \
                 bazel build --jobs ${JOBS} --config=opt --verbose_failures tensorflow/tools/pip_package:build_pip_package; \
             else \
                 bazel build --jobs ${JOBS} --config=opt --config=monolithic --verbose_failures tensorflow/tools/pip_package:build_pip_package; \
@@ -109,23 +119,40 @@ RUN if [ "${BUILD_PIP_PACKAGE}" = "1" ]; then \
     fi
 
 # build protobuf from source, same version as TensorFlow is using
+# TF < 2.16 declares protobuf in workspace*.bzl; TF >= 2.16 uses MODULE.bazel (bzlmod).
+# protobuf < 4.x uses autoconf/make; protobuf >= 4.x uses CMake.
 WORKDIR /
-RUN apt-get install -y autoconf automake libtool curl make g++ unzip wget && \
-    PROTOBUF_URL=$(grep -Eho "https://github.com/protocolbuffers/protobuf/archive/.*\.(zip|tar.gz)" tensorflow/tensorflow/workspace*.bzl) && \
-    PROTOBUF_VERSION=$(echo $PROTOBUF_URL | grep -Eo "([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|[0-9a-f]{40})") && \
-    wget -q $PROTOBUF_URL -O protobuf.archive && \
+RUN apt-get install -y autoconf automake libtool curl make g++ unzip wget cmake && \
+    PROTOBUF_URL=$(grep -Eho "https://github.com/protocolbuffers/protobuf/archive/.*\.(zip|tar\.gz)" tensorflow/tensorflow/workspace*.bzl 2>/dev/null | head -1) && \
+    if [ -z "$PROTOBUF_URL" ]; then \
+        PROTOBUF_VER=$(grep -Eo 'name\s*=\s*"protobuf",\s*version\s*=\s*"[0-9.]+"' tensorflow/MODULE.bazel 2>/dev/null | grep -Eo '"[0-9.]+"' | tail -1 | tr -d '"'); \
+        if [ -n "$PROTOBUF_VER" ]; then \
+            PROTOBUF_URL="https://github.com/protocolbuffers/protobuf/archive/v${PROTOBUF_VER}.tar.gz"; \
+        fi; \
+    fi && \
+    PROTOBUF_VERSION=$(echo "$PROTOBUF_URL" | grep -Eo "([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|[0-9a-f]{40})") && \
+    wget -q "$PROTOBUF_URL" -O protobuf.archive && \
     (unzip -q protobuf.archive || tar -xzf protobuf.archive) && \
     rm protobuf.archive && \
     mv protobuf-$PROTOBUF_VERSION protobuf && \
     cd protobuf && \
-    ./autogen.sh && \
-    ./configure --prefix=/usr/local && \
-    make -j $(nproc) && \
-    make install && \
+    if [ -f autogen.sh ]; then \
+        ./autogen.sh && \
+        ./configure --prefix=/usr/local && \
+        make -j $(nproc) && \
+        make install; \
+    else \
+        cmake -Bcmake_build \
+            -DCMAKE_INSTALL_PREFIX=/usr/local \
+            -DCMAKE_BUILD_TYPE=Release \
+            -Dprotobuf_BUILD_TESTS=OFF && \
+        cmake --build cmake_build -j $(nproc) && \
+        cmake --install cmake_build; \
+    fi && \
     ldconfig
 
 # --- deb-package stage providing libtensorflow-cc.deb -------------------------
-FROM ubuntu:focal as deb-package
+FROM ubuntu:${UBUNTU_CODENAME} as deb-package
 
 ARG TARGETARCH
 ARG TF_VERSION
@@ -156,9 +183,9 @@ ARG BUILD_PIP_PACKAGE
 COPY --from=build /tmp/tensorflow/pip/tensorflow*.whl /
 
 # --- final stage with TensorFlow Python and C++ Library -----------------------
-FROM --platform=amd64 tensorflow/tensorflow:${TF_VERSION}${GPU_POSTFIX} as final-amd64
+FROM --platform=amd64 ${FINAL_BASE_AMD64} as final-amd64
 
-FROM --platform=arm64 ubuntu:focal as final-base-arm64
+FROM --platform=arm64 ubuntu:${UBUNTU_CODENAME} as final-base-arm64
 
 FROM --platform=arm64 rwthika/cuda:11.8-cudnn-trt-ubuntu20.04 as final-base-arm64-gpu
 
@@ -180,15 +207,17 @@ FROM "final-${TARGETARCH}" as final
 ARG DEBIAN_FRONTEND=noninteractive
 ARG TF_VERSION
 ARG GPU_POSTFIX
+ARG UBUNTU_CODENAME=focal
 
 # make sure gcc is installed
 RUN apt-get update && \
     apt-get install -y build-essential && \
     rm -rf /var/lib/apt/lists/*
 
-# install gcc 11 for 2.12.0, 2.12.1, 2.13.0
+# install gcc 11 for 2.12.0, 2.12.1, 2.13.0 on focal only
+# (noble ships gcc-13 by default which is sufficient)
 # https://stackoverflow.com/a/67453352/7264974
-RUN if [ "${TF_VERSION}" = "2.12.0" ] || [ "${TF_VERSION}" = "2.12.1" ] || [ "${TF_VERSION}" = "2.13.0" ]; then \
+RUN if [ "${UBUNTU_CODENAME}" = "focal" ] && { [ "${TF_VERSION}" = "2.12.0" ] || [ "${TF_VERSION}" = "2.12.1" ] || [ "${TF_VERSION}" = "2.13.0" ]; }; then \
         apt-get update && \
 	    apt-get install -y software-properties-common && \
         add-apt-repository ppa:ubuntu-toolchain-r/test && \

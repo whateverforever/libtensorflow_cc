@@ -22,15 +22,18 @@ set -e
 set -o pipefail
 
 DEFAULT_TF_VERSION="2.13.0"
+DEFAULT_TF_VERSION_NOBLE="2.18.0"
 DEFAULT_JOBS=$(nproc 2> /dev/null || sysctl -n hw.ncpu)
 DEFAULT_GPU=1
 DEFAULT_ARCH=$(dpkg --print-architecture 2> /dev/null || uname -m)
+DEFAULT_UBUNTU_CODENAME="focal"
 
 TF_VERSION=${TF_VERSION:-${DEFAULT_TF_VERSION}}
 JOBS=${JOBS:-${DEFAULT_JOBS}}
 GPU=${GPU:-${DEFAULT_GPU}}
 [[ $GPU == "1" ]] && GPU_POSTFIX="-gpu" || GPU_POSTFIX=""
 ARCH=${ARCH:-${DEFAULT_ARCH}}
+UBUNTU_CODENAME=${UBUNTU_CODENAME:-${DEFAULT_UBUNTU_CODENAME}}
 
 if [ "$ARCH" = "arm64" ]; then
     DEFAULT_TF_CUDA_COMPUTE_CAPABILITIES=5.3,6.2,7.2,8.7
@@ -39,18 +42,28 @@ else
 fi
 TF_CUDA_COMPUTE_CAPABILITIES=${TF_CUDA_COMPUTE_CAPABILITIES:-${DEFAULT_TF_CUDA_COMPUTE_CAPABILITIES}}
 
+# final stage base image for amd64: use the TF runtime image on focal, plain ubuntu on noble
+if [ "${UBUNTU_CODENAME}" = "noble" ]; then
+    DEFAULT_FINAL_BASE_AMD64="ubuntu:noble"
+else
+    DEFAULT_FINAL_BASE_AMD64="tensorflow/tensorflow:${TF_VERSION}${GPU_POSTFIX}"
+fi
+FINAL_BASE_AMD64=${FINAL_BASE_AMD64:-${DEFAULT_FINAL_BASE_AMD64}}
+
+UBUNTU_CODENAME_SUFFIX=$([[ "${UBUNTU_CODENAME}" != "focal" ]] && echo "-${UBUNTU_CODENAME}" || echo "")
+
 SCRIPT_NAME=$(basename "$0")
 SCRIPT_DIR=$(realpath $(dirname "$0"))
 REPOSITORY_DIR=$(realpath ${SCRIPT_DIR}/..)
 DOCKER_DIR=${REPOSITORY_DIR}/docker
 LOG_DIR=${DOCKER_DIR}/.log
-LOG_FILE=${LOG_DIR}/${SCRIPT_NAME}_${TF_VERSION}${GPU_POSTFIX}.log
+LOG_FILE=${LOG_DIR}/${SCRIPT_NAME}_${TF_VERSION}${GPU_POSTFIX}${UBUNTU_CODENAME_SUFFIX}.log
 mkdir -p ${LOG_DIR}
 
 DOWNLOAD_DOCKERFILES_DIR=${DOCKER_DIR}/.Dockerfiles
 DOWNLOAD_DOCKERFILE_DIR=${DOWNLOAD_DOCKERFILES_DIR}/${TF_VERSION}
 
 IMAGE_DEVEL_ARCH="tensorflow/tensorflow:${TF_VERSION}-devel${GPU_POSTFIX}-${ARCH}"
-IMAGE_CPP="rwthika/tensorflow-cc:${TF_VERSION}${GPU_POSTFIX}"
+IMAGE_CPP="rwthika/tensorflow-cc:${TF_VERSION}${GPU_POSTFIX}${UBUNTU_CODENAME_SUFFIX}"
 IMAGE_CPP_ARCH="${IMAGE_CPP}-${ARCH}"
-IMAGE_LIBTENSORFLOW_CC_ARCH="rwthika/tensorflow-cc:${TF_VERSION}-libtensorflow_cc${GPU_POSTFIX}-${ARCH}"
+IMAGE_LIBTENSORFLOW_CC_ARCH="rwthika/tensorflow-cc:${TF_VERSION}-libtensorflow_cc${GPU_POSTFIX}${UBUNTU_CODENAME_SUFFIX}-${ARCH}"
