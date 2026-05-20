@@ -71,17 +71,16 @@ RUN ./configure
 # build C++ library
 # TF >= 2.10 must be built non-monolithic due to runtime issue
 # https://github.com/tensorflow/tensorflow/issues/59081
-# For TF >= 2.16 (SIG Build / clang-18 host), GPU builds use --config=cuda_nvcc.
-# That config adds TF_NVCC_CLANG=1 and --@local_config_cuda//:cuda_compiler=nvcc,
-# which routes .cu.cc files through nvcc (required for TF's nvcc-specific bazel
-# flags like -Xcuda-fatbinary) while keeping clang as the host C++ compiler
-# (required for newer ISA flags like -mavxvnniint8 used by XNNPACK).
+# For TF >= 2.16 (SIG Build), GPU builds use --config=cuda, which routes device
+# code through hermetic clang-18.  --config=nvcc_clang is intentionally avoided:
+# it routes device code through nvcc, which lacks clang-specific NVVM intrinsics
+# (e.g. __nvvm_read_ptx_sreg_laneid) used in TF's gpu_device_functions.h.
 ARG JOBS="auto"
 RUN TF_MINOR=$(echo ${TF_VERSION} | cut -d. -f2) && \
     TF_MAJOR=$(echo ${TF_VERSION} | cut -d. -f1) && \
     NON_MONO=$(awk "BEGIN {print (($TF_MAJOR > 2) || ($TF_MAJOR == 2 && $TF_MINOR >= 10)) ? 1 : 0}") && \
     USE_SIG_BUILD=$(awk "BEGIN {print (($TF_MAJOR > 2) || ($TF_MAJOR == 2 && $TF_MINOR >= 16)) ? 1 : 0}") && \
-    CUDA_CONFIG=$([ "$USE_SIG_BUILD" = "1" ] && echo "nvcc_clang" || echo "cuda") && \
+    CUDA_CONFIG="cuda" && \
     EXTRA_COPTS=$([ "$USE_SIG_BUILD" = "1" ] && echo "--copt=-Wno-error=unused-command-line-argument --host_copt=-Wno-error=unused-command-line-argument --copt=-Wno-error=gnu-offsetof-extensions --host_copt=-Wno-error=gnu-offsetof-extensions" || echo "") && \
     if [ "${GPU_POSTFIX}" = "-gpu" ]; then \
         if [ "$NON_MONO" = "1" ]; then \
@@ -111,7 +110,7 @@ RUN TF_MINOR=$(echo ${TF_VERSION} | cut -d. -f2) && \
     TF_MAJOR=$(echo ${TF_VERSION} | cut -d. -f1) && \
     NON_MONO=$(awk "BEGIN {print (($TF_MAJOR > 2) || ($TF_MAJOR == 2 && $TF_MINOR >= 10)) ? 1 : 0}") && \
     USE_SIG_BUILD=$(awk "BEGIN {print (($TF_MAJOR > 2) || ($TF_MAJOR == 2 && $TF_MINOR >= 16)) ? 1 : 0}") && \
-    CUDA_CONFIG=$([ "$USE_SIG_BUILD" = "1" ] && echo "nvcc_clang" || echo "cuda") && \
+    CUDA_CONFIG="cuda" && \
     EXTRA_COPTS=$([ "$USE_SIG_BUILD" = "1" ] && echo "--copt=-Wno-error=unused-command-line-argument --host_copt=-Wno-error=unused-command-line-argument --copt=-Wno-error=gnu-offsetof-extensions --host_copt=-Wno-error=gnu-offsetof-extensions" || echo "") && \
     if [ "${BUILD_PIP_PACKAGE}" = "1" ]; then \
         if [ "${GPU_POSTFIX}" = "-gpu" ]; then \
